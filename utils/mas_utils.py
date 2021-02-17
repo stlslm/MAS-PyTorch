@@ -41,10 +41,11 @@ def init_reg_params(model, use_gpu, freeze_layers = []):
 
 	reg_params = {}
 
-	for name, param in model.tmodel.named_parameters():
-		if not name in freeze_layers:
+	# for name, param in model.tmodel.named_parameters():
+	for param in model.tmodel.parameters():
+		# if not name in freeze_layers:
 			
-			print ("Initializing omega values for layer", name)
+			print ("Initializing omega values for layer", param)
 			omega = torch.zeros(param.size())
 			omega = omega.to(device)
 

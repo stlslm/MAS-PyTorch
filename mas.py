@@ -54,7 +54,7 @@ def mas_train(model, task_no, num_epochs, no_of_layers, no_of_classes, dataloade
 
 	else:
 		#inititialize the reg_params for this task
-		model = init_reg_params_across_tasks(model, use_gpu)
+		model = init_reg_params_across_tasks(model, use_gpu) # TODO
 
 	#get the optimizer
 	optimizer_sp = local_sgd(model.tmodel.parameters(), reg_lambda, lr)
@@ -62,7 +62,7 @@ def mas_train(model, task_no, num_epochs, no_of_layers, no_of_classes, dataloade
 
 	if (task_no > 1):
 
-		model = consolidate_reg_params(model, use_gpu)
+		model = consolidate_reg_params(model, use_gpu) # TODO
 
 	return model
 
