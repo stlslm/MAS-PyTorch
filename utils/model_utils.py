@@ -18,7 +18,9 @@ import shutil
 import pickle
 
 import sys
-sys.path.append('../')
+absfile = os.path.abspath(__file__)
+absdir = os.path.dirname(absfile)
+sys.path.append(os.path.join(absdir, '..'))
 
 from model_class import *
 
