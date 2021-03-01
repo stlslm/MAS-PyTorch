@@ -15,6 +15,58 @@ import copy
 import os
 import shutil
 
+def check_MAS_step(bef, aft):
+	return False
+
+def MAS_step(model, reg_params, reg_lambda):
+    '''
+        Args:
+            reg_params (dict) whose keys are the param names
+            model (shared_model) class defined in model_class
+
+        Returns:
+            the model with overwritten gradients
+    '''
+    for name, p in model.tmodel.named_parameters():
+
+        if p.grad is None:
+            continue
+
+        d_p = p.grad.data
+
+        # overwrite gradients
+        if name in reg_params:
+
+            param_dict = reg_params[name]
+
+            omega = param_dict['omega']
+            init_val = param_dict['init_val']
+
+            curr_param_value = p.data
+            curr_param_value = curr_param_value.cuda()
+            
+            init_val = init_val.cuda()
+            omega = omega.cuda()
+
+            #get the difference
+            param_diff = curr_param_value - init_val
+
+            #get the gradient for the penalty term for change in the weights of the parameters
+            local_grad = torch.mul(param_diff, 2*reg_lambda*omega)
+            
+            del param_diff
+            del omega
+            del init_val
+            del curr_param_value
+
+            d_p = d_p + local_grad
+            
+            del local_grad
+
+            p.grad.data = d_p
+
+    return model
+
 
 class local_sgd(optim.SGD):
 	def __init__(self, params, reg_lambda, lr = 0.001, momentum = 0, dampening = 0, weight_decay = 0, nesterov = False):
@@ -93,6 +145,9 @@ class local_sgd(optim.SGD):
 
 		return loss
 
+
+def omega_update_step():
+	pass
 
 class omega_update(optim.SGD):
 
