@@ -146,8 +146,11 @@ class local_sgd(optim.SGD):
 		return loss
 
 
-def omega_update_step():
-	pass
+def omega_update_step(model, reg_params):
+	
+	
+	
+	return model
 
 class omega_update(optim.SGD):
 
