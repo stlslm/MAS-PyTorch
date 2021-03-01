@@ -25,6 +25,57 @@ from mas_utils import *
 
 from optimizer_lib import *
 
+def check_MAS_step(bef, aft):
+	return False
+
+def MAS_step(model, reg_params, reg_lambda):
+    '''
+        Args:
+            reg_params (dict) whose keys are the param names
+            model (shared_model) class defined in model_class
+
+        Returns:
+            the model with overwritten gradients
+    '''
+    for name, p in model.tmodel.named_parameters():
+
+        if p.grad is None:
+            continue
+
+        d_p = p.grad.data
+
+        # overwrite gradients
+        if name in reg_params:
+
+            param_dict = reg_params[name]
+
+            omega = param_dict['omega']
+            init_val = param_dict['init_val']
+
+            curr_param_value = p.data
+            curr_param_value = curr_param_value.cuda()
+            
+            init_val = init_val.cuda()
+            omega = omega.cuda()
+
+            #get the difference
+            param_diff = curr_param_value - init_val
+
+            #get the gradient for the penalty term for change in the weights of the parameters
+            local_grad = torch.mul(param_diff, 2*reg_lambda*omega)
+            
+            del param_diff
+            del omega
+            del init_val
+            del curr_param_value
+
+            d_p = d_p + local_grad
+            
+            del local_grad
+
+            p.grad.data = d_p
+
+    return model
 
 def train_model(model, task_no, num_classes, optimizer, model_criterion, dataloader_train, dataloader_test, dset_size_train, dset_size_test, num_epochs, use_gpu = False, lr = 0.001, reg_lambda = 0.01):
 	"""
@@ -84,7 +135,8 @@ def train_model(model, task_no, num_classes, optimizer, model_criterion, dataloa
 			model = model.load_state_dict(checkpoint['state_dict'])
 			
 			print ("Loading the optimizer")
-			optimizer = local_sgd(model.reg_params, reg_lambda)
+			# optimizer = local_sgd(model.reg_params, reg_lambda) # 
+			optimizer = torch.optim.SGD(model.tmodel.parameters(), lr=0.001, momentum=0.9)   # should I pass tmodel.parameters() or tmodel.named_parameters()? Ans: they are the same
 			optimizer = optimizer.load_state_dict(checkpoint['optimizer'])
 			
 			print ("Done")
@@ -182,7 +234,12 @@ def train_model(model, task_no, num_classes, optimizer, model_criterion, dataloa
 				loss.backward()
 				#print (model.reg_params)
 
-				optimizer.step(model.reg_params)
+				# optimizer.step(model.reg_params)
+				model_bef = model
+				model_aft = MAS_step(model, model.reg_params, reg_lambda)
+				assert check_MAS_step(model_bef, model_aft)
+
+				optimizer.step()
 				
 				running_loss += loss.item()
 				del loss
