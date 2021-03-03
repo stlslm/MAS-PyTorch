@@ -5,6 +5,7 @@ import torchvision
 from torchvision import datasets, models, transforms
 
 import sys, os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from model_class import *
 from optimizer_lib import *
 from utils.mas_utils import init_reg_params, compute_omega_grads_norm_no_optim, init_reg_params_across_tasks_no_tensorkey, consolidate_reg_params_no_tensorkey
