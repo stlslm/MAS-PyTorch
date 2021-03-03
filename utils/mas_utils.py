@@ -115,7 +115,7 @@ def init_reg_params_across_tasks(model, use_gpu, freeze_layers = []):
 				param_dict['init_val'] = init_val
 
 				#the key for this dictionary is the name of the layer
-				reg_params[name] =  param_dict   # this can be a serious BUG
+				reg_params[param] =  param_dict
 
 	model.reg_params = reg_params
 
