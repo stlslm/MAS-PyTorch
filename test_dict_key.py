@@ -7,14 +7,11 @@ from torchvision import datasets, models, transforms
 import sys, os
 from model_class import *
 from optimizer_lib import *
-from utils.mas_utils import init_reg_params
-
-pre_model = models.alexnet(pretrained = True)
-model = shared_model(pre_model)
-model = init_reg_params(model, True)
+from utils.mas_utils import init_reg_params, compute_omega_grads_norm_no_optim, init_reg_params_across_tasks_no_tensorkey, consolidate_reg_params_no_tensorkey
 
 ##############
 batch_size =32
+use_gpu = True
 
 dloaders_train = []
 data_path = os.path.join(os.getcwd(), "Data")
@@ -35,6 +32,7 @@ data_transforms = {
 	])
 }
 data_dir = os.path.join(os.getcwd(), "Data")
+num_classes = []
 for tdir in sorted(os.listdir(data_dir)):
 
 	#create the image folders objects
@@ -54,6 +52,7 @@ for tdir in sorted(os.listdir(data_dir)):
 	dloaders_train.append(tr_dset_loaders)
 
 	#get the classes (THIS MIGHT NEED TO BE CORRECTED)
+	num_classes.append(len(tr_image_folder.classes))
 
 
 	#get the sizes array
@@ -73,59 +72,89 @@ dataloader_train = dloaders_train[task-1]
 device = torch.device("cuda:0")
 reg_lambda = 0.01
 
-# optimizer = local_sgd(model.reg_params, 0.001)
-optimizer = torch.optim.SGD(model.tmodel.parameters(), lr=0.001, momentum=0.9)   # should I pass tmodel.parameters() or tmodel.named_parameters()? Ans: they are the same
+pre_model = models.alexnet(pretrained = True)
+model = shared_model(pre_model)
 
-for data in dataloader_train:
-    input_data, labels = data
+task_no = 0
+for task_no, dataloader_train in enumerate(dloaders_train):
+	task_no += 1
 
-    input_data = input_data.to(device)
-    labels = labels.to(device) 
+	# init per task
+	no_of_classes = num_classes[task_no-1]
 
-    model.tmodel.to(device)
-    optimizer.zero_grad()
+	# add a new head
+	in_features = model.tmodel.classifier[-1].in_features
+	del model.tmodel.classifier[-1]
+	model.tmodel.classifier.add_module('6', nn.Linear(in_features, no_of_classes))
 
-    output = model.tmodel(input_data)
+	if task_no == 1:
+		model = init_reg_params(model, True)
+	else:
+		model = init_reg_params_across_tasks_no_tensorkey(model, True)
 
-    _, preds = torch.max(output, 1)
-    loss = model_criterion(output, labels)
+	# optimizer = local_sgd(model.reg_params, 0.001)
+	optimizer = torch.optim.SGD(model.tmodel.parameters(), lr=0.001, momentum=0.9)
 
-    loss.backward()
+	for ep in range(1):
 
-    print('')
-    i=0
-    for p in model.parameters():
-        i+=1
-        print(p.sum())
-        if i==10: break
+		# train for 1 epoch
+		for data in dataloader_train:
+			input_data, labels = data
 
-    model = MAS_step(model, model.reg_params, reg_lambda)
-    print("")
-    i=0
-    for p in model.parameters():
-        i+=1
-        print(p.sum())
-        if i==10: break
-    # assert check_MAS_step(model_bef, model_aft)
+			input_data = input_data.to(device)
+			labels = labels.to(device) 
 
-    optimizer.step()
+			model.tmodel.to(device)
+			optimizer.zero_grad()
 
+			output = model.tmodel(input_data)
+
+			_, preds = torch.max(output, 1)
+			loss = model_criterion(output, labels)
+
+			loss.backward()
+
+			# print('')
+			i=0
+			# for p in model.parameters():
+			#	 i+=1
+			#	 print(p.sum())
+			#	 if i==10: break
+
+			model = MAS_step(model, model.reg_params, reg_lambda)
+			# print("")
+			i=0
+			# for p in model.parameters():
+			#	 i+=1
+			#	 print(p.sum())
+			#	 if i==10: break
+			# assert check_MAS_step(model_bef, model_aft)
+
+			optimizer.step()
+
+		# update omega
+		# optimizer_ft = torch.optim.SGD(model.tmodel.parameters(), lr=0.001, momentum=0.9)   
+		print ("Updating the omega values for this task")
+		model = compute_omega_grads_norm_no_optim(model, dataloader_train, use_gpu)
+
+	if (task_no > 1):
+		model = consolidate_reg_params_no_tensorkey(model, use_gpu)
 
 
 for group in optimizer.param_groups:
-    for p in group['params']:
-        if p in model.reg_params:
-            print('gotcha')        
+	for p in group['params']:
+		if p in model.reg_params:
+			print('gotcha')		
 
 # for name, param in model.tmodel.named_parameters():
-    # print(name)
+	# print(name)
 
 
 d = {
-        'a':3, 
-        'b':4,
-        'son': '77'
-    }
+		'a':3, 
+		'b':4,
+		'son': '77'
+	}
 
 print('son' in d)
-print('ha' in d)    
+print('ha' in d)	

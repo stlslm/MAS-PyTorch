@@ -17,6 +17,8 @@ import os
 import shutil
 
 import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from optimizer_lib import omega_update_step
 
 
 def init_reg_params(model, use_gpu, freeze_layers = []):
@@ -113,7 +115,62 @@ def init_reg_params_across_tasks(model, use_gpu, freeze_layers = []):
 				param_dict['init_val'] = init_val
 
 				#the key for this dictionary is the name of the layer
-				reg_params[param] =  param_dict   # this can be a serious BUG
+				reg_params[name] =  param_dict   # this can be a serious BUG
+
+	model.reg_params = reg_params
+
+	return model
+
+def init_reg_params_across_tasks_no_tensorkey(model, use_gpu, freeze_layers = []):
+	"""
+	Input:
+	1) model: A reference to the model that is being trained
+	2) use_gpu: Set the flag to True if the model is to be trained on the GPU
+	3) freeze_layers: A list containing the layers for which omega is not calculated. Useful in the
+		case of computational limitations where computing the importance parameters for the entire model
+		is not feasible
+
+	Output:
+	1) model: A dictionary containing importance weights (omega), init_val (keep a reference 
+	to the initial values of the parameters) for all trainable parameters is calculated and the updated
+	model with these reg_params is returned.
+
+
+	Function: Initializes the reg_params for a model for other tasks in the sequence (task != 1)	
+	"""
+
+	#Get the reg_params for the model 
+	
+	device = torch.device("cuda:0" if use_gpu else "cpu")
+
+	reg_params = model.reg_params
+
+	for name, param in model.tmodel.named_parameters():
+		
+		if not name in freeze_layers:
+
+			if name in reg_params:
+				param_dict = reg_params[name]
+				print ("Initializing the omega values for layer for the new task", name)
+				
+				#Store the previous values of omega
+				prev_omega = param_dict['omega']
+				
+				#Initialize a new omega
+				new_omega = torch.zeros(param.size())
+				new_omega = new_omega.to(device)
+
+				init_val = param.data.clone()
+				init_val = init_val.to(device)
+
+				param_dict['prev_omega'] = prev_omega
+				param_dict['omega'] = new_omega
+
+				#store the initial values of the parameters
+				param_dict['init_val'] = init_val
+
+				#the key for this dictionary is the name of the layer
+				reg_params[name] =  param_dict   
 
 	model.reg_params = reg_params
 
@@ -154,6 +211,45 @@ def consolidate_reg_params(model, use_gpu):
 
 			#the key for this dictionary is the name of the layer
 			reg_params[param] = param_dict
+
+	model.reg_params = reg_params
+
+	return model
+
+def consolidate_reg_params_no_tensorkey(model, use_gpu):
+	"""
+	Input:
+	1) model: A reference to the model that is being trained
+	2) use_gpu: Set the flag to True if you wish to train the model on a GPU
+
+	Output:
+	1) reg_params: A dictionary containing importance weights (omega), init_val (keep a reference 
+	to the initial values of the parameters) for all trainable parameters
+
+
+	Function: This function updates the value (adds the value) of omega across the tasks that the model is 
+	exposed to
+	
+	"""
+	#Get the reg_params for the model 
+	reg_params = model.reg_params
+
+	for name, param in model.tmodel.named_parameters():
+		if name in reg_params:
+			param_dict = reg_params[name]
+			print ("Consolidating the omega values for layer", name)
+			
+			#Store the previous values of omega
+			prev_omega = param_dict['prev_omega']
+			new_omega = param_dict['omega']
+
+			new_omega = torch.add(prev_omega, new_omega)
+			del param_dict['prev_omega']
+			
+			param_dict['omega'] = new_omega
+
+			#the key for this dictionary is the name of the layer
+			reg_params[name] = param_dict
 
 	model.reg_params = reg_params
 
@@ -216,6 +312,63 @@ def compute_omega_grads_norm(model, dataloader, optimizer, use_gpu):
 
 	return model
 
+
+def compute_omega_grads_norm_no_optim(model, dataloader, use_gpu):
+	"""
+	Inputs:
+	1) model: A reference to the model for which omega is to be calculated
+	2) dataloader: A dataloader to feed the data to the model
+	3) optimizer: An instance of the "omega_update" class
+	4) use_gpu: Flag is set to True if the model is to be trained on the GPU
+
+	Outputs:
+	1) model: An updated reference to the model is returned
+
+	Function: Global version for computing the l2 norm of the function (neural network's) outputs. In 
+	addition to this, the function also accumulates the values of omega across the items of a task
+	
+	"""
+	#Alexnet object
+	model.tmodel.eval()
+
+	index = 0
+	for data in dataloader:
+		
+		#get the inputs and labels
+		inputs, labels = data
+
+		if(use_gpu):
+			device = torch.device("cuda:0" if use_gpu else "cpu")
+			inputs, labels = inputs.to(device), labels.to(device)
+
+		#Zero the parameter gradients
+		# optimizer.zero_grad()
+
+		#get the function outputs
+		outputs = model.tmodel(inputs)
+		del inputs
+
+		#compute the sqaured l2 norm of the function outputs
+		l2_norm = torch.norm(outputs, 2, dim = 1)
+		del outputs
+
+		squared_l2_norm = l2_norm**2
+		del l2_norm
+		
+		sum_norm = torch.sum(squared_l2_norm)
+		del squared_l2_norm
+
+		#compute gradients for these parameters
+		sum_norm.backward()
+
+		#omega_update_step computes the omega values for the new batches of data
+		omega_update_step(model, model.reg_params, index, labels.size(0), use_gpu)
+		
+		del labels
+		
+		index = index + 1
+
+	return model
 
 #need a different function for grads vector
 def compute_omega_grads_vector(model, dataloader, optimizer, use_gpu):
