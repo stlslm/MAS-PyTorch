@@ -15,6 +15,65 @@ import copy
 import os
 import shutil
 
+def check_MAS_step(bef, aft):
+	return False
+
+def MAS_step(model, reg_params, reg_lambda):
+	'''
+		Args:
+			reg_params (dict) whose keys are the param names
+			model (shared_model) class defined in model_class
+
+		Returns:
+			the model with overwritten gradients
+	'''
+	for name, p in model.tmodel.named_parameters():
+
+		if p.grad is None:
+			continue
+
+		d_p = p.grad.data
+
+		# overwrite gradients
+		if name in reg_params:			
+
+			param_dict = reg_params[name]
+
+			# omega = param_dict['omega']
+			if 'prev_omega' in param_dict:
+				omega = param_dict['prev_omega']
+			else:
+				omega = param_dict['omega']
+			init_val = param_dict['init_val']
+
+			curr_param_value = p.data
+			curr_param_value = curr_param_value.cuda()
+			
+			init_val = init_val.cuda()
+			omega = omega.cuda()
+
+			#get the difference
+			param_diff = curr_param_value - init_val
+
+			#get the gradient for the penalty term for change in the weights of the parameters
+			local_grad = torch.mul(param_diff, 2*reg_lambda*omega)  # omega is always '0' for the current task. 'prev_omega' is non-zero but 'prev_omega' is never used?
+
+			if name == 'features.0.weight':
+				print(p.data.sum(), ' - ', param_dict['init_val'].sum(), ' = ', param_diff.sum(), ' -> lcg:', local_grad.sum())
+			
+			del param_diff
+			del omega
+			del init_val
+			del curr_param_value
+
+			d_p = d_p + local_grad
+			
+			del local_grad
+
+			p.grad.data = d_p
+
+	return model
+
 
 class local_sgd(optim.SGD):
 	def __init__(self, params, reg_lambda, lr = 0.001, momentum = 0, dampening = 0, weight_decay = 0, nesterov = False):
@@ -93,6 +152,43 @@ class local_sgd(optim.SGD):
 
 		return loss
 
+
+def omega_update_step(model, reg_params, batch_index, batch_size, use_gpu=True):
+	'''
+		Return:
+			reg_params : the updated one
+	'''
+	for name, p in model.tmodel.named_parameters():
+
+		if p.grad is None:
+			continue
+
+		# overwrite gradients
+		if name in reg_params:			
+			grad_data = p.grad.data
+
+			grad_data_copy = p.grad.data.clone()
+			grad_data_copy = grad_data_copy.abs()
+
+			param_dict = reg_params[name]
+
+			omega = param_dict['omega']
+			omega = omega.to(torch.device("cuda:0" if use_gpu else "cpu"))
+
+			current_size = (batch_index+1)*batch_size
+			step_size = 1/float(current_size)
+
+			#Incremental update for the omega
+			omega = omega + step_size*(grad_data_copy - batch_size*(omega))
+
+			param_dict['omega'] = omega
+
+			reg_params[name] = param_dict
+
+			del omega
+			del param_dict
+			del grad_data
+			del grad_data_copy
 
 class omega_update(optim.SGD):
 

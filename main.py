@@ -32,7 +32,7 @@ from mas import *
 
 
 parser = argparse.ArgumentParser(description='Test file')
-parser.add_argument('--use_gpu', default=False, type=bool, help = 'Set the flag if you wish to use the GPU')
+parser.add_argument('--use_gpu', default=True, type=bool, help = 'Set the flag if you wish to use the GPU')
 parser.add_argument('--batch_size', default=32, type=int, help = 'The batch size you want to use')
 parser.add_argument('--num_freeze_layers', default=2, type=int, help = 'Number of layers you want to frozen in the feature extractor of the model')
 parser.add_argument('--num_epochs', default=10, type=int, help='Number of epochs you want to train the model on')

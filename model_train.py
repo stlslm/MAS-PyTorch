@@ -84,7 +84,8 @@ def train_model(model, task_no, num_classes, optimizer, model_criterion, dataloa
 			model = model.load_state_dict(checkpoint['state_dict'])
 			
 			print ("Loading the optimizer")
-			optimizer = local_sgd(model.reg_params, reg_lambda)
+			# optimizer = local_sgd(model.reg_params, reg_lambda) # 
+			optimizer = torch.optim.SGD(model.tmodel.parameters(), lr=0.001, momentum=0.9)   # should I pass tmodel.parameters() or tmodel.named_parameters()? Ans: they are the same
 			optimizer = optimizer.load_state_dict(checkpoint['optimizer'])
 			
 			print ("Done")
@@ -182,7 +183,12 @@ def train_model(model, task_no, num_classes, optimizer, model_criterion, dataloa
 				loss.backward()
 				#print (model.reg_params)
 
-				optimizer.step(model.reg_params)
+				# optimizer.step(model.reg_params)
+				model_bef = model
+				model_aft = MAS_step(model, model.reg_params, reg_lambda)
+				assert check_MAS_step(model_bef, model_aft)
+
+				optimizer.step()
 				
 				running_loss += loss.item()
 				del loss
